@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-from ldap3 import ALL, Server, Connection, NTLM, extend, SUBTREE
+from ldap3 import ALL, Server, Connection, NTLM, extend, SUBTREE, Tls
+import ssl
 import argparse
 import binascii
+
+from ldap3.core.exceptions import LDAPStartTLSError
+
 from structure import Structure
 from Cryptodome.Hash import MD4
 
@@ -31,7 +35,7 @@ class MSDS_MANAGEDPASSWORD_BLOB(Structure):
         Structure.__init__(self, data = data)
 
     def fromString(self, data):
-        Structure.fromString(self,data)
+        Structure.fromString(self, data)
 
         if self['PreviousPasswordOffset'] == 0:
             endData = self['QueryPasswordIntervalOffset']
@@ -52,14 +56,30 @@ def base_creator(domain):
         search_base += "DC=" + b + ","
     return search_base[:-1]
 
+
+def ldap_connect(version, args):
+    # Specify ALL ciphers, so python negotiates a matching cipher on older servers, i.e. Windows 2012
+    tls = Tls(validate=ssl.CERT_NONE, version=version, ciphers='ALL')
+    if args.ldapserver:
+        server = Server(args.ldapserver, get_info=ALL, tls=tls)
+    else:
+        server = Server(args.domain, get_info=ALL, tls=tls)
+    conn = Connection(server, user='{}\\{}'.format(args.domain, args.username), password=args.password,
+                      authentication=NTLM, auto_bind=True)
+    conn.start_tls()
+    return server, conn
+
+
 def main():
     args = parser.parse_args()
-    if args.ldapserver:
-        server = Server(args.ldapserver, get_info=ALL)
-    else:
-        server = Server(args.domain, get_info=ALL)
-    conn = Connection(server, user='{}\\{}'.format(args.domain, args.username), password=args.password, authentication=NTLM, auto_bind=True)
-    conn.start_tls()
+
+    # try to connect using PROTOCOL_TLS
+    try:
+        server, conn = ldap_connect(ssl.PROTOCOL_TLS_CLIENT, args)
+    except LDAPStartTLSError:
+        # Now, specifically try TLSv1
+        server, conn = ldap_connect(ssl.PROTOCOL_TLSv1, args)
+
     success = conn.search(base_creator(args.domain), '(&(ObjectClass=msDS-GroupManagedServiceAccount))', search_scope=SUBTREE, attributes=['sAMAccountName','msDS-ManagedPassword'])
     if success:
         for entry in conn.entries:
