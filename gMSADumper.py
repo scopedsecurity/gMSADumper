@@ -58,8 +58,8 @@ def base_creator(domain):
 
 
 def ldap_connect(version, args):
-    # Specify ALL ciphers, so python negotiates a matching cipher on older servers, i.e. Windows 2012
-    tls = Tls(validate=ssl.CERT_NONE, version=version, ciphers='ALL')
+    # Specify ALL ciphers at SECLEVEL 0, but do not use diffie-hellman or anon ciphers
+    tls = Tls(validate=ssl.CERT_NONE, version=version, ciphers='ALL:!DH:!aNull:@SECLEVEL=0')
     if args.ldapserver:
         server = Server(args.ldapserver, get_info=ALL, tls=tls)
     else:
